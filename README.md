@@ -2,9 +2,9 @@
 
 # AI Othello
 
-A two-player Othello (Reversi) game in a single HTML file. Each player picks an
-AI as their side — OpenAI, Grok, Copilot, Meta, Gemini or Claude — and the discs
-carry that AI's token.
+An Othello (Reversi) game in a single HTML file. Each side picks an AI as its
+token — OpenAI, Grok, Copilot, Meta, Gemini or Claude — and the discs carry
+that token. Play against the computer, or with two people on one screen.
 
 ## Play
 
@@ -16,12 +16,25 @@ deploy from the `main` branch, root folder). The game will be served at
 
 ## How it works
 
-- Two people share one screen and take turns.
 - Yellow dots mark the squares where the current player can move.
 - A move must trap at least one of the other side's discs in a straight line;
   trapped discs flip to your side.
 - If a player has no move, the turn passes back. The game ends when neither
   player can move, and the side with more discs wins.
+
+## Modes
+
+- **Pass and play** — two people share one screen and take turns.
+- **You vs computer** — choose which seat the computer takes and how strong it
+  plays:
+  - **Quick** picks the move that scores best right now, favouring corners and
+    good squares.
+  - **Solid** looks about four moves ahead, and plays the last few moves of
+    the game out to the end.
+  - **Sharp** looks about six moves ahead and knows a few opening moves. It
+    can take a few seconds on a move, and the page pauses while it thinks.
+
+Changing the mode or the computer's seat starts a new game.
 
 ## Tokens and logos
 
@@ -34,7 +47,7 @@ project is not affiliated with or endorsed by any of them.
 
 ## Files
 
-- `index.html` — the whole game: markup, styles and script
+- `index.html` — the whole game: markup, styles, script and computer player
 - `logo.svg` — repository logo and page icon
 - `LICENSE` — MIT licence
 

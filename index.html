@@ -67,8 +67,20 @@ h1{
   line-height:1;
   margin:0 0 4px;
 }
-.sub{margin:0 0 18px;color:var(--muted);}
-
+.sub{margin:0 0 14px;color:var(--muted);}
+.modes{
+  display:grid;
+  grid-template-columns:1.2fr .9fr .9fr;
+  gap:8px;
+  margin-bottom:12px;
+}
+.modes label{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  font-size:.75rem;
+  color:var(--muted);
+}
 .players{
   display:grid;
   grid-template-columns:1fr 1fr;
@@ -83,6 +95,7 @@ h1{
   min-width:0;
 }
 .player.active{border-color:var(--hint);}
+.player.cpu{box-shadow:inset 0 0 0 1px var(--hint);}
 .player-top{
   display:flex;
   align-items:center;
@@ -106,6 +119,7 @@ select{
   border:1px solid var(--line);
   border-radius:8px;
 }
+.modes select{margin-top:0;}
 .img-row{
   display:flex;
   gap:10px;
@@ -123,7 +137,6 @@ select{
 }
 .img-row input{position:absolute;width:1px;height:1px;opacity:0;}
 .img-row label:focus-within{outline:2px solid var(--hint);outline-offset:2px;}
-
 #board{
   display:grid;
   grid-template-columns:repeat(8,1fr);
@@ -184,7 +197,6 @@ select{
 @media (prefers-reduced-motion:reduce){
   .disc.changed{animation:none;}
 }
-
 #status{
   min-height:2.8em;
   margin:14px 0;
@@ -203,18 +215,43 @@ select{
   cursor:pointer;
 }
 #new:focus-visible{outline-offset:3px;}
+@media (max-width:520px){
+  .modes{grid-template-columns:1fr;}
+}
 </style>
 </head>
 <body>
 <main>
   <h1>AI Othello</h1>
-  <p class="sub">Two players, one screen. Pick an AI each and trap the other side's discs.</p>
+  <p class="sub">Pick an AI each. Trap a line of the other side's discs to flip them.</p>
+
+  <div class="modes">
+    <label>Mode
+      <select id="mode" aria-label="Play mode">
+        <option value="hot">Pass and play</option>
+        <option value="cpu" selected>You vs computer</option>
+      </select>
+    </label>
+    <label>Computer sits
+      <select id="cpuSeat" aria-label="Computer seat">
+        <option value="2" selected>Player 2</option>
+        <option value="1">Player 1</option>
+      </select>
+    </label>
+    <label>Strength
+      <select id="strength" aria-label="Computer strength">
+        <option value="quick">Quick</option>
+        <option value="solid" selected>Solid</option>
+        <option value="sharp">Sharp</option>
+      </select>
+    </label>
+  </div>
 
   <div class="players">
     <section class="player" id="panel0">
       <div class="player-top">
         <div class="disc p1" id="mini0"></div>
-        <span class="who">Player 1</span>
+        <span class="who" id="who0">Player 1</span>
         <span class="score" id="score0">2</span>
       </div>
       <select id="sel0" aria-label="Player 1 AI"></select>
@@ -226,7 +263,7 @@ select{
     <section class="player" id="panel1">
       <div class="player-top">
         <div class="disc p2" id="mini1"></div>
-        <span class="who">Player 2</span>
+        <span class="who" id="who1">Player 2</span>
         <span class="score" id="score1">2</span>
       </div>
       <select id="sel1" aria-label="Player 2 AI"></select>
@@ -253,46 +290,84 @@ const AIS = {
   Claude:  "✳"
 };
 const DIRS = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+const WEIGHTS = [
+  [120,-20, 20,  5,  5, 20,-20,120],
+  [-20,-40, -5, -5, -5, -5,-40,-20],
+  [ 20, -5, 15,  3,  3, 15, -5, 20],
+  [  5, -5,  3,  3,  3,  3, -5,  5],
+  [  5, -5,  3,  3,  3,  3, -5,  5],
+  [ 20, -5, 15,  3,  3, 15, -5, 20],
+  [-20,-40, -5, -5, -5, -5,-40,-20],
+  [120,-20, 20,  5,  5, 20,-20,120]
+];
+const BOOK = {
+  "": 19,
+  "19": 26,
+  "19,26": 37,
+  "19,18": 26,
+  "19,20": 26,
+  "19,29": 26
+};
 
 const players = [
   { name: "OpenAI", img: null },
-  { name: "Gemini", img: null }
+  { name: "Grok", img: null }
 ];
 let board = [];
 let current = P1;
 let over = false;
 let notice = "";
 let changed = new Set();
+let thinking = false;
+let thinkTimer = 0;
+let line = [];
 
 const $ = id => document.getElementById(id);
 const idx = p => p - 1;
 const opponent = p => (p === P1 ? P2 : P1);
 const inside = (r, c) => r >= 0 && r < SIZE && c >= 0 && c < SIZE;
+const mode = () => $("mode").value;
+const cpuPlayer = () => mode() === "cpu" ? +$("cpuSeat").value : 0;
+const isCpuTurn = () => !over && current === cpuPlayer();
 
-function getFlips(row, col, player) {
-  if (board[row][col] !== EMPTY) return [];
+function getFlipsOn(grid, row, col, player) {
+  if (grid[row][col] !== EMPTY) return [];
   const flips = [];
+  const opp = opponent(player);
   for (const [dr, dc] of DIRS) {
     let r = row + dr, c = col + dc;
     const run = [];
-    while (inside(r, c) && board[r][c] === opponent(player)) {
+    while (inside(r, c) && grid[r][c] === opp) {
       run.push([r, c]);
       r += dr; c += dc;
     }
-    if (run.length && inside(r, c) && board[r][c] === player) flips.push(...run);
+    if (run.length && inside(r, c) && grid[r][c] === player) flips.push(...run);
   }
   return flips;
 }
+function getFlips(row, col, player) { return getFlipsOn(board, row, col, player); }
 
-function validMoves(player) {
+function validMovesOn(grid, player) {
   const moves = [];
   for (let r = 0; r < SIZE; r++)
     for (let c = 0; c < SIZE; c++)
-      if (getFlips(r, c, player).length) moves.push(r * SIZE + c);
+      if (getFlipsOn(grid, r, c, player).length) moves.push(r * SIZE + c);
   return moves;
+}
+function validMoves(player) { return validMovesOn(board, player); }
+
+function applyMove(grid, row, col, player) {
+  const flips = getFlipsOn(grid, row, col, player);
+  if (!flips.length) return null;
+  const next = grid.map(r => r.slice());
+  next[row][col] = player;
+  for (const [r, c] of flips) next[r][c] = player;
+  return next;
 }
 
 function startGame() {
+  clearTimeout(thinkTimer);
+  thinking = false;
   board = Array.from({ length: SIZE }, () => Array(SIZE).fill(EMPTY));
   board[3][3] = P2; board[3][4] = P1;
   board[4][3] = P1; board[4][4] = P2;
@@ -300,21 +375,12 @@ function startGame() {
   over = false;
   notice = "";
   changed = new Set();
+  line = [];
   draw();
+  queueCpu();
 }
 
-function makeMove(row, col) {
-  if (over) return;
-  const flips = getFlips(row, col, current);
-  if (!flips.length) return;
-  board[row][col] = current;
-  changed = new Set([row * SIZE + col]);
-  for (const [r, c] of flips) {
-    board[r][c] = current;
-    changed.add(r * SIZE + c);
-  }
-  notice = "";
-  const mover = current;
+function finishTurn(mover) {
   current = opponent(current);
   if (!validMoves(current).length) {
     if (validMoves(mover).length) {
@@ -324,7 +390,169 @@ function makeMove(row, col) {
       over = true;
     }
   }
+}
+
+function makeMove(row, col) {
+  if (over || thinking) return;
+  if (isCpuTurn()) return;
+  const flips = getFlips(row, col, current);
+  if (!flips.length) return;
+  board[row][col] = current;
+  changed = new Set([row * SIZE + col]);
+  for (const [r, c] of flips) {
+    board[r][c] = current;
+    changed.add(r * SIZE + c);
+  }
+  line.push(row * SIZE + col);
+  notice = "";
+  const mover = current;
+  finishTurn(mover);
   draw();
+  queueCpu();
+}
+
+function queueCpu() {
+  if (!isCpuTurn()) return;
+  thinking = true;
+  draw();
+  thinkTimer = setTimeout(cpuPlay, 280);
+}
+
+function cpuPlay() {
+  if (!isCpuTurn()) { thinking = false; return; }
+  const move = chooseMove(board, current, line.slice());
+  if (move == null) {
+    thinking = false;
+    draw();
+    return;
+  }
+  const row = (move / SIZE) | 0, col = move % SIZE;
+  const flips = getFlips(row, col, current);
+  board[row][col] = current;
+  changed = new Set([row * SIZE + col]);
+  for (const [r, c] of flips) {
+    board[r][c] = current;
+    changed.add(r * SIZE + c);
+  }
+  line.push(move);
+  notice = "";
+  const mover = current;
+  finishTurn(mover);
+  thinking = false;
+  draw();
+  if (isCpuTurn()) queueCpu();
+}
+
+function chooseMove(grid, player, history) {
+  const moves = validMovesOn(grid, player);
+  if (!moves.length) return null;
+  const key = history.join(",");
+  if (BOOK[key] != null && moves.includes(BOOK[key]) && $("strength").value !== "quick") return BOOK[key];
+  if ($("strength").value === "quick") return quickMove(grid, player, moves);
+  const depth = $("strength").value === "sharp" ? 6 : 4;
+  let best = moves[0], bestScore = -Infinity;
+  const ordered = orderMoves(grid, player, moves);
+  for (const m of ordered) {
+    const row = (m / SIZE) | 0, col = m % SIZE;
+    const next = applyMove(grid, row, col, player);
+    const score = -negamax(next, opponent(player), depth - 1, -Infinity, Infinity, empties(next));
+    if (score > bestScore) { bestScore = score; best = m; }
+  }
+  return best;
+}
+
+function quickMove(grid, player, moves) {
+  let best = moves[0], bestScore = -Infinity;
+  for (const m of moves) {
+    const row = (m / SIZE) | 0, col = m % SIZE;
+    const flips = getFlipsOn(grid, row, col, player);
+    let score = WEIGHTS[row][col] + flips.length * 2;
+    if ((row === 0 || row === 7) && (col === 0 || col === 7)) score += 80;
+    if (score > bestScore) { bestScore = score; best = m; }
+  }
+  return best;
+}
+
+function orderMoves(grid, player, moves) {
+  return moves.slice().sort((a, b) => {
+    const ar = (a / SIZE) | 0, ac = a % SIZE, br = (b / SIZE) | 0, bc = b % SIZE;
+    return (WEIGHTS[br][bc] + getFlipsOn(grid, br, bc, player).length) -
+           (WEIGHTS[ar][ac] + getFlipsOn(grid, ar, ac, player).length);
+  });
+}
+
+function empties(grid) {
+  let n = 0;
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) if (grid[r][c] === EMPTY) n++;
+  return n;
+}
+
+function negamax(grid, player, depth, alpha, beta, empty) {
+  const moves = validMovesOn(grid, player);
+  if (!moves.length) {
+    const oppMoves = validMovesOn(grid, opponent(player));
+    if (!oppMoves.length) return terminal(grid, player);
+    return -negamax(grid, opponent(player), depth, -beta, -alpha, empty);
+  }
+  if (depth <= 0 || empty === 0) return evaluate(grid, player);
+  const end = empty <= depth + 1;
+  const ordered = orderMoves(grid, player, moves);
+  let best = -Infinity;
+  for (const m of ordered) {
+    const row = (m / SIZE) | 0, col = m % SIZE;
+    const next = applyMove(grid, row, col, player);
+    const score = -negamax(next, opponent(player), end ? empty : depth - 1, -beta, -alpha, empty - 1);
+    if (score > best) best = score;
+    if (best > alpha) alpha = best;
+    if (alpha >= beta) break;
+  }
+  return best;
+}
+
+function terminal(grid, player) {
+  let me = 0, opp = 0;
+  const other = opponent(player);
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    if (grid[r][c] === player) me++;
+    else if (grid[r][c] === other) opp++;
+  }
+  if (me === opp) return 0;
+  return (me > opp ? 1 : -1) * (10000 + me - opp);
+}
+
+function evaluate(grid, player) {
+  const other = opponent(player);
+  let pos = 0, me = 0, opp = 0, frontier = 0;
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const v = grid[r][c];
+    if (!v) continue;
+    const sign = v === player ? 1 : -1;
+    pos += sign * WEIGHTS[r][c];
+    if (v === player) me++; else opp++;
+    let edge = false;
+    for (const [dr, dc] of DIRS) {
+      const nr = r + dr, nc = c + dc;
+      if (inside(nr, nc) && grid[nr][nc] === EMPTY) { edge = true; break; }
+    }
+    if (edge) frontier += sign;
+  }
+  const myMoves = validMovesOn(grid, player).length;
+  const oppMoves = validMovesOn(grid, other).length;
+  const mobility = (myMoves - oppMoves) * 8;
+  const disc = me + opp > 48 ? (me - opp) * 4 : (opp - me);
+  const corners = cornerBonus(grid, player);
+  return pos + mobility - frontier * 3 + disc + corners;
+}
+
+function cornerBonus(grid, player) {
+  const corners = [[0,0],[0,7],[7,0],[7,7]];
+  let score = 0;
+  for (const [r, c] of corners) {
+    const v = grid[r][c];
+    if (!v) continue;
+    score += (v === player ? 25 : -25);
+  }
+  return score;
 }
 
 function paintDisc(el, player) {
@@ -341,7 +569,8 @@ function paintDisc(el, player) {
 function draw() {
   const el = $("board");
   el.innerHTML = "";
-  const moves = over ? [] : validMoves(current);
+  const human = !over && !thinking && !isCpuTurn();
+  const moves = human ? validMoves(current) : [];
   let s = [0, 0];
   for (let r = 0; r < SIZE; r++) {
     for (let c = 0; c < SIZE; c++) {
@@ -370,20 +599,25 @@ function draw() {
     }
   }
   changed = new Set();
-
+  const cpu = cpuPlayer();
   for (const i of [0, 1]) {
     $("score" + i).textContent = s[i];
     paintDisc($("mini" + i), i + 1);
     $("panel" + i).classList.toggle("active", !over && idx(current) === i);
+    $("panel" + i).classList.toggle("cpu", cpu === i + 1);
+    $("who" + i).textContent = cpu === i + 1 ? "Computer" : "You";
+    if (mode() === "hot") $("who" + i).textContent = "Player " + (i + 1);
     $("clear" + i).hidden = !players[i].img;
   }
-
   const status = $("status");
+  status.textContent = "";
   if (over) {
     const result = s[0] === s[1]
       ? "It's a draw, " + s[0] + " each."
       : players[s[0] > s[1] ? 0 : 1].name + " wins " + Math.max(...s) + " to " + Math.min(...s) + ".";
     status.textContent = result;
+  } else if (thinking) {
+    status.textContent = players[idx(current)].name + " is thinking";
   } else {
     status.textContent = players[idx(current)].name + " to move";
     if (notice) {
@@ -407,7 +641,6 @@ function setupPlayer(i) {
     const other = 1 - i;
     const previous = players[i].name;
     players[i].name = sel.value;
-    // Both players picking the same AI: swap the other player onto the old pick.
     if (players[other].name === sel.value) {
       players[other].name = previous;
       $("sel" + other).value = previous;
@@ -428,6 +661,9 @@ function setupPlayer(i) {
 setupPlayer(0);
 setupPlayer(1);
 $("new").onclick = startGame;
+$("mode").onchange = startGame;
+$("cpuSeat").onchange = startGame;
+$("strength").onchange = () => { if (isCpuTurn() && !thinking) queueCpu(); };
 startGame();
 </script>
 </body>
