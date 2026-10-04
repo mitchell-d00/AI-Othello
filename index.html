@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI Othello</title>
+<link rel="icon" type="image/svg+xml" href="logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --page:#e7eee4;
+  --ink:#15251c;
+  --muted:#557062;
+  --panel:#f6f9f3;
+  --line:#c3d2c4;
+  --frame:#0e3b26;
+  --felt:#1f7a4d;
+  --felt-hi:#278c5a;
+  --hint:#f0bf45;
+  --light-disc:#f5f2e9;
+  --dark-disc:#1a1b1f;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --page:#0f1f18;
+    --ink:#e6efe8;
+    --muted:#8fab9b;
+    --panel:#162b21;
+    --line:#2a4637;
+    --frame:#06170f;
+    --felt:#1c7046;
+    --felt-hi:#238053;
+  }
+}
+:root[data-theme="dark"]{
+  --page:#0f1f18;
+  --ink:#e6efe8;
+  --muted:#8fab9b;
+  --panel:#162b21;
+  --line:#2a4637;
+  --frame:#06170f;
+  --felt:#1c7046;
+  --felt-hi:#238053;
+}
+*,*::before,*::after{box-sizing:inherit;}
+html{scroll-padding-top:env(safe-area-inset-top,0px);}
+body{
+  margin:0;
+  background:var(--page);
+  color:var(--ink);
+  font-family:"Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",sans-serif;
+  line-height:1.4;
+}
+main{
+  max-width:560px;
+  margin:0 auto;
+  padding:20px 16px 32px;
+}
+h1{
+  font-size:clamp(2rem,9vw,3rem);
+  font-weight:800;
+  letter-spacing:-0.03em;
+  line-height:1;
+  margin:0 0 4px;
+}
+.sub{margin:0 0 18px;color:var(--muted);}
+
+.players{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin-bottom:12px;
+}
+.player{
+  background:var(--panel);
+  border:2px solid var(--line);
+  border-radius:12px;
+  padding:10px;
+  min-width:0;
+}
+.player.active{border-color:var(--hint);}
+.player-top{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.player-top .disc{width:36px;height:36px;flex:none;font-size:18px;}
+.score{
+  margin-left:auto;
+  font-size:1.6rem;
+  font-weight:800;
+  font-variant-numeric:tabular-nums;
+}
+.who{font-size:.8rem;color:var(--muted);}
+select{
+  width:100%;
+  margin-top:8px;
+  padding:8px;
+  font:inherit;
+  color:var(--ink);
+  background:var(--page);
+  border:1px solid var(--line);
+  border-radius:8px;
+}
+.img-row{
+  display:flex;
+  gap:10px;
+  margin-top:6px;
+  font-size:.8rem;
+}
+.img-row label,.img-row button{
+  color:var(--muted);
+  text-decoration:underline;
+  cursor:pointer;
+  background:none;
+  border:0;
+  padding:0;
+  font:inherit;
+}
+.img-row input{position:absolute;width:1px;height:1px;opacity:0;}
+.img-row label:focus-within{outline:2px solid var(--hint);outline-offset:2px;}
+
+#board{
+  display:grid;
+  grid-template-columns:repeat(8,1fr);
+  gap:2px;
+  width:100%;
+  aspect-ratio:1;
+  padding:6px;
+  background:var(--frame);
+  border-radius:12px;
+}
+.cell{
+  position:relative;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:var(--felt);
+  border:0;
+  border-radius:3px;
+  padding:0;
+  cursor:default;
+  min-width:0;
+}
+.cell.valid{cursor:pointer;}
+.cell.valid::after{
+  content:"";
+  width:24%;
+  height:24%;
+  border-radius:50%;
+  background:var(--hint);
+  opacity:.85;
+}
+.cell.valid:hover{background:var(--felt-hi);}
+.cell:focus-visible,select:focus-visible,button:focus-visible{
+  outline:3px solid var(--hint);
+  outline-offset:-3px;
+}
+.disc{
+  width:84%;
+  height:84%;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:clamp(14px,5.2vw,28px);
+  line-height:1;
+  background-size:cover;
+  background-position:center;
+  box-shadow:0 2px 4px rgba(0,0,0,.4);
+  user-select:none;
+}
+.disc.p1{background-color:var(--light-disc);color:#15251c;border:2px solid #fff;}
+.disc.p2{background-color:var(--dark-disc);color:#f5f2e9;border:2px solid #55585f;}
+.disc.changed{animation:flip .32s ease-out;}
+@keyframes flip{
+  0%{transform:rotateY(90deg) scale(.9);}
+  100%{transform:none;}
+}
+@media (prefers-reduced-motion:reduce){
+  .disc.changed{animation:none;}
+}
+
+#status{
+  min-height:2.8em;
+  margin:14px 0;
+  font-size:1.05rem;
+  font-weight:600;
+}
+#status small{display:block;font-weight:400;color:var(--muted);}
+#new{
+  font:inherit;
+  font-weight:600;
+  padding:11px 18px;
+  color:var(--page);
+  background:var(--ink);
+  border:0;
+  border-radius:10px;
+  cursor:pointer;
+}
+#new:focus-visible{outline-offset:3px;}
+</style>
+</head>
+<body>
+<main>
+  <h1>AI Othello</h1>
+  <p class="sub">Two players, one screen. Pick an AI each and trap the other side's discs.</p>
+
+  <div class="players">
+    <section class="player" id="panel0">
+      <div class="player-top">
+        <div class="disc p1" id="mini0"></div>
+        <span class="who">Player 1</span>
+        <span class="score" id="score0">2</span>
+      </div>
+      <select id="sel0" aria-label="Player 1 AI"></select>
+      <div class="img-row">
+        <label>Use my own image<input type="file" accept="image/*" id="file0"></label>
+        <button type="button" id="clear0" hidden>Remove image</button>
+      </div>
+    </section>
+    <section class="player" id="panel1">
+      <div class="player-top">
+        <div class="disc p2" id="mini1"></div>
+        <span class="who">Player 2</span>
+        <span class="score" id="score1">2</span>
+      </div>
+      <select id="sel1" aria-label="Player 2 AI"></select>
+      <div class="img-row">
+        <label>Use my own image<input type="file" accept="image/*" id="file1"></label>
+        <button type="button" id="clear1" hidden>Remove image</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="board" role="grid" aria-label="Othello board"></div>
+  <div id="status" aria-live="polite"></div>
+  <button id="new" type="button">Start a new game</button>
+</main>
+
+<script>
+const SIZE = 8, EMPTY = 0, P1 = 1, P2 = 2;
+const AIS = {
+  OpenAI:  "◎",
+  Grok:    "✕",
+  Copilot: "◈",
+  Meta:    "∞",
+  Gemini:  "✦",
+  Claude:  "✳"
+};
+const DIRS = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+
+const players = [
+  { name: "OpenAI", img: null },
+  { name: "Gemini", img: null }
+];
+let board = [];
+let current = P1;
+let over = false;
+let notice = "";
+let changed = new Set();
+
+const $ = id => document.getElementById(id);
+const idx = p => p - 1;
+const opponent = p => (p === P1 ? P2 : P1);
+const inside = (r, c) => r >= 0 && r < SIZE && c >= 0 && c < SIZE;
+
+function getFlips(row, col, player) {
+  if (board[row][col] !== EMPTY) return [];
+  const flips = [];
+  for (const [dr, dc] of DIRS) {
+    let r = row + dr, c = col + dc;
+    const run = [];
+    while (inside(r, c) && board[r][c] === opponent(player)) {
+      run.push([r, c]);
+      r += dr; c += dc;
+    }
+    if (run.length && inside(r, c) && board[r][c] === player) flips.push(...run);
+  }
+  return flips;
+}
+
+function validMoves(player) {
+  const moves = [];
+  for (let r = 0; r < SIZE; r++)
+    for (let c = 0; c < SIZE; c++)
+      if (getFlips(r, c, player).length) moves.push(r * SIZE + c);
+  return moves;
+}
+
+function startGame() {
+  board = Array.from({ length: SIZE }, () => Array(SIZE).fill(EMPTY));
+  board[3][3] = P2; board[3][4] = P1;
+  board[4][3] = P1; board[4][4] = P2;
+  current = P1;
+  over = false;
+  notice = "";
+  changed = new Set();
+  draw();
+}
+
+function makeMove(row, col) {
+  if (over) return;
+  const flips = getFlips(row, col, current);
+  if (!flips.length) return;
+  board[row][col] = current;
+  changed = new Set([row * SIZE + col]);
+  for (const [r, c] of flips) {
+    board[r][c] = current;
+    changed.add(r * SIZE + c);
+  }
+  notice = "";
+  const mover = current;
+  current = opponent(current);
+  if (!validMoves(current).length) {
+    if (validMoves(mover).length) {
+      notice = players[idx(current)].name + " has no move, so the turn passes back.";
+      current = mover;
+    } else {
+      over = true;
+    }
+  }
+  draw();
+}
+
+function paintDisc(el, player) {
+  const p = players[idx(player)];
+  if (p.img) {
+    el.style.backgroundImage = "url(" + p.img + ")";
+    el.textContent = "";
+  } else {
+    el.style.backgroundImage = "";
+    el.textContent = AIS[p.name];
+  }
+}
+
+function draw() {
+  const el = $("board");
+  el.innerHTML = "";
+  const moves = over ? [] : validMoves(current);
+  let s = [0, 0];
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      const v = board[r][c];
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = "cell";
+      const where = "row " + (r + 1) + ", column " + (c + 1);
+      if (v !== EMPTY) {
+        s[idx(v)]++;
+        const disc = document.createElement("div");
+        disc.className = "disc p" + v + (changed.has(r * SIZE + c) ? " changed" : "");
+        paintDisc(disc, v);
+        cell.appendChild(disc);
+        cell.setAttribute("aria-label", players[idx(v)].name + " disc, " + where);
+        cell.tabIndex = -1;
+      } else if (moves.includes(r * SIZE + c)) {
+        cell.classList.add("valid");
+        cell.setAttribute("aria-label", "Play " + where);
+        cell.onclick = () => makeMove(r, c);
+      } else {
+        cell.setAttribute("aria-label", "Empty, " + where);
+        cell.tabIndex = -1;
+      }
+      el.appendChild(cell);
+    }
+  }
+  changed = new Set();
+
+  for (const i of [0, 1]) {
+    $("score" + i).textContent = s[i];
+    paintDisc($("mini" + i), i + 1);
+    $("panel" + i).classList.toggle("active", !over && idx(current) === i);
+    $("clear" + i).hidden = !players[i].img;
+  }
+
+  const status = $("status");
+  if (over) {
+    const result = s[0] === s[1]
+      ? "It's a draw, " + s[0] + " each."
+      : players[s[0] > s[1] ? 0 : 1].name + " wins " + Math.max(...s) + " to " + Math.min(...s) + ".";
+    status.textContent = result;
+  } else {
+    status.textContent = players[idx(current)].name + " to move";
+    if (notice) {
+      const n = document.createElement("small");
+      n.textContent = notice;
+      status.appendChild(n);
+    }
+  }
+}
+
+function setupPlayer(i) {
+  const sel = $("sel" + i);
+  for (const name of Object.keys(AIS)) {
+    const o = document.createElement("option");
+    o.value = name;
+    o.textContent = AIS[name] + "  " + name;
+    sel.appendChild(o);
+  }
+  sel.value = players[i].name;
+  sel.onchange = () => {
+    const other = 1 - i;
+    const previous = players[i].name;
+    players[i].name = sel.value;
+    // Both players picking the same AI: swap the other player onto the old pick.
+    if (players[other].name === sel.value) {
+      players[other].name = previous;
+      $("sel" + other).value = previous;
+    }
+    draw();
+  };
+  $("file" + i).onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { players[i].img = reader.result; draw(); };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+  $("clear" + i).onclick = () => { players[i].img = null; draw(); };
+}
+
+setupPlayer(0);
+setupPlayer(1);
+$("new").onclick = startGame;
+startGame();
+</script>
+</body>
+</html>
